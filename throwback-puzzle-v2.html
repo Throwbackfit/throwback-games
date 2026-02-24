@@ -115,6 +115,9 @@ input[type=text]::placeholder{color:rgba(255,255,255,0.35);}
   <div class="hud-block"><div class="hud-label">Placed</div><div class="hud-val" id="placed-val" style="color:#4CAF50">0 / 20</div></div>
   <div class="hud-block"><div class="hud-label">Best Time</div><div class="hud-val" id="best-val" style="color:#FF9500">—</div></div>
   <div class="hud-block"><div class="hud-label">🏆 Leaders</div><div class="hud-val" id="lb-count" style="color:#aaa;font-size:1rem">0 players</div></div>
+  <div class="hud-block" style="display:flex;align-items:center;justify-content:center;">
+    <button onclick="resetPuzzle()" id="reset-btn" style="font-family:'Boogaloo',cursive;font-size:0.85rem;background:rgba(255,255,255,0.08);color:#aaa;border:1.5px solid rgba(255,255,255,0.2);border-radius:20px;padding:4px 14px;cursor:pointer;transition:all 0.15s;" onmouseover="this.style.color='#fff';this.style.borderColor='rgba(255,255,255,0.5)'" onmouseout="this.style.color='#aaa';this.style.borderColor='rgba(255,255,255,0.2)'">↺ Reset</button>
+  </div>
 </div>
 
 <div id="game-container">
@@ -551,8 +554,11 @@ function onDown(e){
 function onMove(e){
   if(!dragging)return;
   const {x,y}=evPos(e);
-  dragging.x=x-dragOffX;
-  dragging.y=y-dragOffY;
+  // Clamp so piece stays fully within canvas bounds
+  const newX = x-dragOffX;
+  const newY = y-dragOffY;
+  dragging.x = Math.max(0, Math.min(CW - dragging.cw, newX));
+  dragging.y = Math.max(0, Math.min(CH - dragging.ch, newY));
 }
 
 function onUp(e){
@@ -639,6 +645,20 @@ function startGame(){
 
 
 
+
+// ---- RESET ----
+function resetPuzzle(){
+  if(!gameRunning) return;
+  // Re-scatter all unplaced pieces back into tray positions
+  // keeping placed pieces where they are
+  pieces.forEach(p => {
+    if(!p.placed){
+      const pos = trayPos(p.cw, p.ch);
+      p.x = pos.x;
+      p.y = pos.y;
+    }
+  });
+}
 
 // ---- BOOT ----
 img.onload=()=>{ imgLoaded=true; refreshLBMeta(); };
