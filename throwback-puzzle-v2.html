@@ -184,58 +184,103 @@ let pieceW, pieceH; // base piece size on screen
 // Tab data [row][col] = {right, bottom}  1=knob out, -1=hole in, 0=flat
 let tabs = [];
 
-// ---- LEADERBOARD ----
-function getLB(){ try{return JSON.parse(localStorage.getItem('tb_puz_lb2')||'[]');}catch(e){return[];} }
-function saveLB(lb){ try{localStorage.setItem('tb_puz_lb2',JSON.stringify(lb));}catch(e){} }
-function addScore(name,time){
-  const lb=getLB();
-  lb.push({name,time,date:new Date().toLocaleDateString()});
-  lb.sort((a,b)=>a.time-b.time);
-  saveLB(lb.slice(0,20));
-  refreshLBMeta();
+// ---- LEADERBOARD (Supabase) ----
+const SB_URL = 'https://xotnjbbjuezaazycgwrl.supabase.co';
+const SB_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhvdG5qYmJqdWV6YWF6eWNnd3JsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzIwNjgxODgsImV4cCI6MjA4NzY0NDE4OH0.es7sxnXBRa3cjSiAgvsUXCQrO57-S8oxEKiRTc9HUGE';
+
+async function sbFetch(path, options){
+  options = options || {};
+  const res = await fetch(SB_URL + path, {
+    method: options.method || 'GET',
+    headers: {
+      'apikey': SB_KEY,
+      'Authorization': 'Bearer ' + SB_KEY,
+      'Content-Type': 'application/json',
+      'Prefer': 'return=representation'
+    },
+    body: options.body || undefined
+  });
+  if(!res.ok) throw new Error(await res.text());
+  return res.json();
 }
-function refreshLBMeta(){
-  const lb=getLB();
-  document.getElementById('lb-count').textContent=lb.length+' player'+(lb.length!==1?'s':'');
-  document.getElementById('best-val').textContent=lb.length?formatTime(lb[0].time):'—';
+
+async function addScore(name, time){
+  try{
+    await sbFetch('/rest/v1/leaderboard', {
+      method: 'POST',
+      body: JSON.stringify({name: name, time: time, date: new Date().toLocaleDateString()})
+    });
+    await refreshLBMeta();
+  } catch(e){ console.error('Score save failed:', e); }
 }
-function showLeaderboard(){
-  const lb=getLB();
-  const list=document.getElementById('leaderboard-list');
-  list.innerHTML='';
+
+async function fetchScores(){
+  try{
+    return await sbFetch('/rest/v1/leaderboard?select=*&order=time.asc&limit=20');
+  } catch(e){ console.error('Score fetch failed:', e); return []; }
+}
+
+async function refreshLBMeta(){
+  const lb = await fetchScores();
+  document.getElementById('lb-count').textContent = lb.length + ' player' + (lb.length !== 1 ? 's' : '');
+  document.getElementById('best-val').textContent = lb.length ? formatTime(lb[0].time) : '—';
+}
+
+async function showLeaderboard(){
+  hideAllModals();
+  document.getElementById('overlay').style.display = 'flex';
+  document.getElementById('lb-modal').style.display = 'block';
+  const list = document.getElementById('leaderboard-list');
+  list.innerHTML = '<li style="justify-content:center;color:#aaa">Loading...</li>';
+  const lb = await fetchScores();
+  list.innerHTML = '';
   if(!lb.length){
-    list.innerHTML='<li style="justify-content:center;color:#aaa">No scores yet — be the first!</li>';
+    list.innerHTML = '<li style="justify-content:center;color:#aaa">No scores yet — be the first!</li>';
   } else {
-    const medals=['🥇','🥈','🥉'];
-    lb.forEach((e,i)=>{
-      const li=document.createElement('li');
-      li.innerHTML=`<span><span class="lb-rank">${i+1}</span>${i<3?medals[i]:''}${e.name}</span><span class="lb-time">${formatTime(e.time)}</span>`;
+    const medals = ['🥇','🥈','🥉'];
+    lb.forEach(function(e, i){
+      const li = document.createElement('li');
+      const medal = i < 3 ? medals[i] : '';
+      li.innerHTML = '<span><span class="lb-rank">' + (i+1) + '</span>' + medal + e.name + '</span><span class="lb-time">' + formatTime(e.time) + '</span>';
       list.appendChild(li);
     });
   }
-  hideAllModals();
-  document.getElementById('overlay').style.display='flex';
-  document.getElementById('lb-modal').style.display='block';
 }
+
 function closeLb(){
   hideAllModals();
-  document.getElementById('overlay').style.display='flex';
-  document.getElementById('start-modal').style.display='block';
+  document.getElementById('overlay').style.display = 'flex';
+  document.getElementById('start-modal').style.display = 'block';
 }
-function submitScore(){
-  const name=(document.getElementById('player-name').value.trim())||'Anonymous';
-  addScore(name,elapsed);
+
+async function submitScore(){
+  const name = (document.getElementById('player-name').value.trim()) || 'Anonymous';
+  // Show saving state
+  const btn = document.querySelector('#win-modal .btn-yellow');
+  if(btn){ btn.textContent = 'Saving...'; btn.disabled = true; }
+  try{
+    await sbFetch('/rest/v1/leaderboard', {
+      method: 'POST',
+      body: JSON.stringify({name: name, time: elapsed, date: new Date().toLocaleDateString()})
+    });
+  } catch(e){ console.error('Score save failed:', e); }
+  // Small delay to ensure Supabase has committed before fetching
+  await new Promise(resolve => setTimeout(resolve, 800));
   hideAllModals();
-  showLeaderboard();
+  await showLeaderboard();
 }
+
 function skipSubmit(){
   hideAllModals();
-  document.getElementById('overlay').style.display='flex';
-  document.getElementById('start-modal').style.display='block';
+  document.getElementById('overlay').style.display = 'flex';
+  document.getElementById('start-modal').style.display = 'block';
 }
+
 function hideAllModals(){
-  document.getElementById('overlay').style.display='none';
-  ['start-modal','win-modal','lb-modal'].forEach(id=>document.getElementById(id).style.display='none');
+  document.getElementById('overlay').style.display = 'none';
+  ['start-modal','win-modal','lb-modal'].forEach(function(id){
+    document.getElementById(id).style.display = 'none';
+  });
 }
 
 // ---- TIMER ----
@@ -663,7 +708,7 @@ function resetPuzzle(){
 // ---- BOOT ----
 img.onload=()=>{ imgLoaded=true; refreshLBMeta(); };
 img.src=IMG_SRC;
-refreshLBMeta();
+refreshLBMeta();  // initial async call
 </script>
 </body>
 </html>
